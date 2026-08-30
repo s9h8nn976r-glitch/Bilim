@@ -5,7 +5,6 @@ from aiogram.filters import Command
 from urllib.parse import quote
 import google.generativeai as genai
 from openai import AsyncOpenAI
-import aiohttp
 
 from data import MESSAGES, SUBJECTS, TEXTBOOKS
 from keyboards import *
@@ -13,11 +12,12 @@ from states import MenuState
 from config import BOT_TOKEN, GEMINI_API_KEY, OPENROUTER_API_KEY
 
 # Инициализация ИИ
-genai.configure(api_key=GEMINI_API_KEY)
+if GEMINI_API_KEY and GEMINI_API_KEY != "placeholder":
+    genai.configure(api_key=GEMINI_API_KEY)
 
 openrouter_client = AsyncOpenAI(
     base_url="https://openrouter.ai/api/v1",
-    api_key=OPENROUTER_API_KEY,
+    api_key=OPENROUTER_API_KEY if OPENROUTER_API_KEY != "placeholder" else "sk-fake",
 )
 
 router = Router()
@@ -253,20 +253,21 @@ async def process_solve_photo(message: Message, state: FSMContext):
     data = await state.get_data()
     lang = data.get("lang", "ru")
     
+    if not GEMINI_API_KEY or GEMINI_API_KEY == "placeholder":
+        await message.answer("❌ Gemini API ключ не настроен. Добавь GEMINI_API_KEY в Railway Variables.")
+        return
+    
     photo = message.photo[-1]
-    file_info = await message.bot.get_file(photo.file_id)
-    file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info.file_path}"
+    file_obj = await message.bot.get_file(photo.file_id)
+    image_bytes = await message.bot.download_file(file_obj.file_path)
+    image_data = image_bytes.read()
     
-    async with aiohttp.ClientSession() as session:
-        async with session.get(file_url) as resp:
-            image_data = await resp.read()
-    
-    prompt = "Ты — помощник школьника. Реши эту задачу подробно, объясни каждый шаг."
+    prompt = "Ты — помощник школьника. Реши задачу на фото подробно, объясни каждый шаг."
     if lang == "kz":
-        prompt = "Сен оқушының көмекшісісің. Бұл есепті толық шеш, әр қадамды түсіндір."
+        prompt = "Сен оқушының көмекшісісің. Суреттегі есепті толық шеш, әр қадамды түсіндір."
     
     try:
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = genai.GenerativeModel('gemini-1.5-flash-latest')
         response = model.generate_content([
             prompt,
             {"mime_type": "image/jpeg", "data": image_data}
@@ -277,7 +278,7 @@ async def process_solve_photo(message: Message, state: FSMContext):
             reply_markup=back_only_keyboard(lang, "other:back")
         )
     except Exception as e:
-        await message.answer(f"❌ Ошибка: {e}", reply_markup=back_only_keyboard(lang, "other:back"))
+        await message.answer(f"❌ Ошибка Gemini: {e}", reply_markup=back_only_keyboard(lang, "other:back"))
 
 @router.message(MenuState.solve, F.text)
 async def process_solve_text(message: Message, state: FSMContext):
@@ -285,12 +286,16 @@ async def process_solve_text(message: Message, state: FSMContext):
     lang = data.get("lang", "ru")
     query = message.text
     
+    if not GEMINI_API_KEY or GEMINI_API_KEY == "placeholder":
+        await message.answer("❌ Gemini API ключ не настроен. Добавь GEMINI_API_KEY в Railway Variables.")
+        return
+    
     prompt = f"Ты — помощник школьника. Реши эту задачу подробно, объясни каждый шаг: {query}"
     if lang == "kz":
         prompt = f"Сен оқушының көмекшісісің. Бұл есепті толық шеш, әр қадамды түсіндір: {query}"
     
     try:
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = genai.GenerativeModel('gemini-1.5-flash-latest')
         response = model.generate_content(prompt)
         await message.answer(
             f"❓ *Решение:*\n\n{response.text}",
@@ -298,27 +303,28 @@ async def process_solve_text(message: Message, state: FSMContext):
             reply_markup=back_only_keyboard(lang, "other:back")
         )
     except Exception as e:
-        await message.answer(f"❌ Ошибка: {e}", reply_markup=back_only_keyboard(lang, "other:back"))
+        await message.answer(f"❌ Ошибка Gemini: {e}", reply_markup=back_only_keyboard(lang, "other:back"))
 
 @router.message(MenuState.bzb, F.photo)
 async def process_bzb_photo(message: Message, state: FSMContext):
     data = await state.get_data()
     lang = data.get("lang", "ru")
     
-    photo = message.photo[-1]
-    file_info = await message.bot.get_file(photo.file_id)
-    file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info.file_path}"
+    if not GEMINI_API_KEY or GEMINI_API_KEY == "placeholder":
+        await message.answer("❌ Gemini API ключ не настроен. Добавь GEMINI_API_KEY в Railway Variables.")
+        return
     
-    async with aiohttp.ClientSession() as session:
-        async with session.get(file_url) as resp:
-            image_data = await resp.read()
+    photo = message.photo[-1]
+    file_obj = await message.bot.get_file(photo.file_id)
+    image_bytes = await message.bot.download_file(file_obj.file_path)
+    image_data = image_bytes.read()
     
     prompt = "Найди правильный ответ на это задание по БЖБ (безопасность жизнедеятельности)."
     if lang == "kz":
         prompt = "Өмір қауіпсіздігі (БЖБ) тапсырмасына дұрыс жауап бер."
     
     try:
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = genai.GenerativeModel('gemini-1.5-flash-latest')
         response = model.generate_content([
             prompt,
             {"mime_type": "image/jpeg", "data": image_data}
@@ -329,7 +335,7 @@ async def process_bzb_photo(message: Message, state: FSMContext):
             reply_markup=back_only_keyboard(lang, "other:back")
         )
     except Exception as e:
-        await message.answer(f"❌ Ошибка: {e}", reply_markup=back_only_keyboard(lang, "other:back"))
+        await message.answer(f"❌ Ошибка Gemini: {e}", reply_markup=back_only_keyboard(lang, "other:back"))
 
 @router.message(MenuState.bzb, F.text)
 async def process_bzb_text(message: Message, state: FSMContext):
@@ -337,12 +343,21 @@ async def process_bzb_text(message: Message, state: FSMContext):
     lang = data.get("lang", "ru")
     query = message.text
     
+    if not GEMINI_API_KEY or GEMINI_API_KEY == "placeholder":
+        await message.answer("❌ Gemini API ключ не настроен. Добавь GEMINI_API_KEY в Railway Variables.")
+        return
+    
     prompt = f"Найди правильный ответ на задание по БЖБ: {query}"
     if lang == "kz":
         prompt = f"Өмір қауіпсіздігі (БЖБ) тапсырмасына дұрыс жауап бер: {query}"
     
     try:
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = genai.GenerativeModel('gemini-1.5-flash-latest')
         response = model.generate_content(prompt)
         await message.answer(
-            f"🛡️ *БЖБ — ответ:*\n\n{response.text}"
+            f"🛡️ *БЖБ — ответ:*\n\n{response.text}",
+            parse_mode="Markdown",
+            reply_markup=back_only_keyboard(lang, "other:back")
+        )
+    except Exception as e:
+        await message.answer(f"❌ Ошибка Gemini: {e}", reply_markup=back_only_keyboard(lang, "other:back"))
