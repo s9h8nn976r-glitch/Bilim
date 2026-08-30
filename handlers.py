@@ -302,4 +302,30 @@ async def process_presentation(message: Message, state: FSMContext):
             reply_markup=back_only_keyboard(lang, "other:back")
         )
 
+        try:
+            os.remove(file_path)
+            for f in os.listdir("/tmp"):
+                if f.startswith("slide_") or f == "title_bg.jpg":
+                    os.remove(f"/tmp/{f}")
+        except Exception:
+            pass
+
+    except Exception as e:
+        await message.answer(
+            "❌ Ошибка: " + str(e),
+            reply_markup=back_only_keyboard(lang, "other:back")
+        )
+
+
+@router.message(MenuState.solve, F.photo)
+async def process_solve_photo(message: Message, state: FSMContext):
+    data = await state.get_data()
+    lang = data.get("lang", "ru")
     
+    if not GEMINI_API_KEY or GEMINI_API_KEY == "placeholder":
+        await message.answer(
+            "❌ Gemini API ключ не настроен. Добавь GEMINI_API_KEY в Railway Variables.",
+            reply_markup=back_only_keyboard(lang, "other:back")
+        )
+        return
+
