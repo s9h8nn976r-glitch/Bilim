@@ -345,9 +345,4 @@ async def process_bzb_text(message: Message, state: FSMContext):
         model = genai.GenerativeModel('gemini-1.5-flash')
         response = model.generate_content(prompt)
         await message.answer(
-            f"🛡️ *БЖБ — ответ:*\n\n{response.text}",
-            parse_mode="Markdown",
-            reply_markup=back_only_keyboard(lang, "other:back")
-        )
-    except Exception as e:
-        await message.answer(f"❌ Ошибка: {e}", reply_markup=back_only_keyboard(lang, "other:back"))
+            f"🛡️ *БЖБ — ответ:*\n\n{response.text}"
