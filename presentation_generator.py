@@ -39,19 +39,42 @@ def create_presentation(topic, content_text, lang="ru"):
     if not slides_data:
         slides_data = [{"title": topic, "points": [content_text[:500]]}]
 
+    total = len(slides_data[:10])
+
     # ===== ТИТУЛЬНИК =====
     slide = prs.slides.add_slide(blank_layout)
-    bg = slide.shapes.add_shape(
+
+    # Фоновая картинка через Pollinations
+    try:
+        bg_prompt = f"{topic} presentation dark blue background abstract minimal"
+        bg_url = f"https://image.pollinations.ai/prompt/{urllib.parse.quote(bg_prompt)}?width=1280&height=720&nologo=true&seed=999"
+        r = requests.get(bg_url, timeout=25)
+        if r.status_code == 200 and len(r.content) > 5000:
+            path = "/tmp/title_bg.jpg"
+            with open(path, "wb") as f:
+                f.write(r.content)
+            pic = slide.shapes.add_picture(path, Inches(0), Inches(0), width=prs.slide_width)
+            spTree = slide.shapes._spTree
+            sp = pic._element
+            spTree.remove(sp)
+            spTree.insert(2, sp)
+    except Exception:
+        pass
+
+    # Тёмная подложка поверх картинки для читаемости
+    overlay = slide.shapes.add_shape(
         MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), prs.slide_width, prs.slide_height
     )
-    bg.fill.solid()
-    bg.fill.fore_color.rgb = RGBColor(25, 55, 140)
-    bg.line.fill.background()
+    overlay.fill.solid()
+    overlay.fill.fore_color.rgb = RGBColor(25, 55, 140)
+    overlay.fill.fore_color.brightness = 0.2
+    overlay.line.fill.background()
     spTree = slide.shapes._spTree
-    sp = bg._element
+    sp = overlay._element
     spTree.remove(sp)
     spTree.insert(2, sp)
 
+    # Жёлтая полоса
     accent = slide.shapes.add_shape(
         MSO_SHAPE.RECTANGLE, Inches(0), Inches(6.8), prs.slide_width, Inches(0.7)
     )
@@ -59,6 +82,7 @@ def create_presentation(topic, content_text, lang="ru"):
     accent.fill.fore_color.rgb = RGBColor(255, 190, 40)
     accent.line.fill.background()
 
+    # Заголовок
     tb = slide.shapes.add_textbox(Inches(0.5), Inches(2.4), Inches(12.3), Inches(1.6))
     tf = tb.text_frame
     tf.word_wrap = True
@@ -69,20 +93,20 @@ def create_presentation(topic, content_text, lang="ru"):
     p.font.color.rgb = RGBColor(255, 255, 255)
     p.alignment = PP_ALIGN.CENTER
 
+    # Подзаголовок
     sub = slide.shapes.add_textbox(Inches(0.5), Inches(4.2), Inches(12.3), Inches(0.8))
     tf = sub.text_frame
     p = tf.paragraphs[0]
     p.text = "BilimBot — Школьный помощник"
     p.font.size = Pt(22)
-    p.font.color.rgb = RGBColor(180, 200, 255)
+    p.font.color.rgb = RGBColor(200, 220, 255)
     p.alignment = PP_ALIGN.CENTER
 
-    # ===== СЛАЙДЫ С КОНТЕНТОМ =====
-    total = len(slides_data[:10])
+    # ===== КОНТЕНТНЫЕ СЛАЙДЫ =====
     for idx, sdata in enumerate(slides_data[:10]):
         slide = prs.slides.add_slide(blank_layout)
 
-        # Фон
+        # Белый фон
         bg = slide.shapes.add_shape(
             MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), prs.slide_width, prs.slide_height
         )
@@ -119,7 +143,7 @@ def create_presentation(topic, content_text, lang="ru"):
 
         # ТЕКСТ слева (широкий блок)
         content = slide.shapes.add_textbox(
-            Inches(0.4), Inches(1.25), Inches(8.6), Inches(5.9)
+            Inches(0.4), Inches(1.25), Inches(8.5), Inches(5.9)
         )
         tf = content.text_frame
         tf.word_wrap = True
@@ -131,38 +155,37 @@ def create_presentation(topic, content_text, lang="ru"):
             p.space_after = Pt(12)
             p.level = 0
 
-        # КАРТИНКА справа — Unsplash (реальные фото)
+        # КАРТИНКА справа — Pollinations.ai (бесплатно, без ключа)
         img_loaded = False
         try:
-            # Формируем поисковый запрос на английском (просто topic)
-            query = urllib.parse.quote(topic.replace(" ", ","))
-            img_url = f"https://source.unsplash.com/600x500/?{query}"
-            r = requests.get(img_url, timeout=20, allow_redirects=True)
-            if r.status_code == 200 and len(r.content) > 1000:
+            img_prompt = f"{topic} {sdata['title']}, illustration, clean, educational"
+            img_url = f"https://image.pollinations.ai/prompt/{urllib.parse.quote(img_prompt)}?width=512&height=512&nologo=true&seed={idx}"
+            r = requests.get(img_url, timeout=25)
+            if r.status_code == 200 and len(r.content) > 5000:
                 path = f"/tmp/slide_{idx}.jpg"
                 with open(path, "wb") as f:
                     f.write(r.content)
                 # Рамка
                 frame = slide.shapes.add_shape(
                     MSO_SHAPE.ROUNDED_RECTANGLE,
-                    Inches(9.2), Inches(1.3), Inches(3.7), Inches(4.8)
+                    Inches(9.1), Inches(1.3), Inches(3.8), Inches(4.9)
                 )
                 frame.fill.solid()
                 frame.fill.fore_color.rgb = RGBColor(230, 235, 245)
                 frame.line.color.rgb = RGBColor(200, 210, 230)
-                # Картинка внутри рамки
+                # Картинка внутри
                 pic = slide.shapes.add_picture(
-                    path, Inches(9.3), Inches(1.4), width=Inches(3.5)
+                    path, Inches(9.2), Inches(1.4), width=Inches(3.6)
                 )
                 img_loaded = True
         except Exception:
             pass
 
-        # Если картинка не загрузилась — цветной декор с иконкой-текстом
+        # Если картинка не загрузилась — цветной декор
         if not img_loaded:
             decor = slide.shapes.add_shape(
                 MSO_SHAPE.ROUNDED_RECTANGLE,
-                Inches(9.5), Inches(2.0), Inches(3.0), Inches(3.0)
+                Inches(9.5), Inches(2.2), Inches(3.0), Inches(3.0)
             )
             decor.fill.solid()
             decor.fill.fore_color.rgb = RGBColor(230, 235, 245)
@@ -170,13 +193,13 @@ def create_presentation(topic, content_text, lang="ru"):
             dt = decor.text_frame
             dt.word_wrap = True
             dp = dt.paragraphs[0]
-            dp.text = "📷"
+            dp.text = "🖼️"
             dp.font.size = Pt(48)
             dp.alignment = PP_ALIGN.CENTER
 
         # Номер слайда
         num = slide.shapes.add_textbox(
-            Inches(11.8), Inches(7.05), Inches(1.2), Inches(0.35)
+            Inches(11.5), Inches(7.0), Inches(1.5), Inches(0.4)
         )
         nt = num.text_frame
         np = nt.paragraphs[0]
