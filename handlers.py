@@ -390,9 +390,7 @@ async def process_solve_photo(message: Message, state: FSMContext):
             {"mime_type": "image/jpeg", "data": image_data}
         ])
         await message.answer(
-            f"❓ *Решение:*
-
-{response.text}",
+            f"❓ *Решение:*\n\n{response.text}",
             parse_mode="Markdown",
             reply_markup=back_only_keyboard(lang, "other:back")
         )
@@ -424,9 +422,7 @@ async def process_solve_text(message: Message, state: FSMContext):
         model = genai.GenerativeModel('gemini-1.5-flash-latest')
         response = model.generate_content(prompt)
         await message.answer(
-            f"❓ *Решение:*
-
-{response.text}",
+            f"❓ *Решение:*\n\n{response.text}",
             parse_mode="Markdown",
             reply_markup=back_only_keyboard(lang, "other:back")
         )
@@ -499,9 +495,7 @@ async def process_bzb_photo(message: Message, state: FSMContext):
             {"mime_type": "image/jpeg", "data": image_data}
         ])
         await message.answer(
-            f"🛡️ *БЖБ — ответ:*
-
-{response.text}",
+            f"🛡️ *БЖБ — ответ:*\n\n{response.text}",
             parse_mode="Markdown",
             reply_markup=back_only_keyboard(lang, "other:back")
         )
@@ -533,9 +527,7 @@ async def process_bzb_text(message: Message, state: FSMContext):
         model = genai.GenerativeModel('gemini-1.5-flash-latest')
         response = model.generate_content(prompt)
         await message.answer(
-            f"🛡️ *БЖБ — ответ:*
-
-{response.text}",
+            f"🛡️ *БЖБ — ответ:*\n\n{response.text}",
             parse_mode="Markdown",
             reply_markup=back_only_keyboard(lang, "other:back")
         )
