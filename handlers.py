@@ -10,7 +10,9 @@ import os
 from data import MESSAGES, SUBJECTS, TEXTBOOKS
 from keyboards import *
 from states import MenuState
-from config import BOT_TOKEN, GEMINI_API_KEY, OPENROUTER_API_KEY
+from config import BOT_TOKEN, GEMINI_API_KEY, OPENROUTER_API_KEY, BING_SEARCH_KEY
+from ocr import extract_text_from_image
+import searcher
 
 # Инициализация ИИ
 if GEMINI_API_KEY and GEMINI_API_KEY != "placeholder":
@@ -332,18 +334,65 @@ async def process_solve_photo(message: Message, state: FSMContext):
     image_bytes = await message.bot.download_file(file_obj.file_path)
     image_data = image_bytes.read()
     
-    prompt = "Ты — помощник школьника. Реши задачу на фото подробно, объясни каждый шаг."
-    if lang == "kz":
-        prompt = "Сен оқушының көмекшісісің. Суреттегі есепті толық шеш, әр қадамды түсіндір."
-    
+    # OCR
     try:
+        ocr_text = extract_text_from_image(image_data)
+    except Exception:
+        ocr_text = ""
+
+    # Build and send a quick search link (fallback)
+    data_state = await state.get_data()
+    class_num = data_state.get("class_num")
+    subject = data_state.get("subject")
+    textbook = data_state.get("textbook")
+
+    search_query = ocr_text or "image"
+    if subject and class_num:
+        search_query = f"{subject} {class_num} класс {search_query}"
+
+    google_url = searcher.build_google_search_url(search_query)
+
+    reply_lines = []
+    if ocr_text:
+        reply_lines.append(f"📷 Распознанный текст:\n{ocr_text}")
+    reply_lines.append(f"🔍 Попробуй поиск: {google_url}")
+    await message.answer("\n\n".join(reply_lines), reply_markup=back_only_keyboard(lang, "other:back"))
+
+    # If Bing key is available, try image search
+    if BING_SEARCH_KEY:
+        try:
+            results = searcher.search_bing_images_text(search_query, BING_SEARCH_KEY, count=3)
+            if results:
+                # try download first result
+                first = results[0]
+                url = first.get("contentUrl") or first.get("thumbnailUrl") or first.get("hostPageUrl")
+                if url:
+                    out_path = "/tmp/found_full.jpg"
+                    ok = searcher.download_url_to_file(url, out_path)
+                    if ok:
+                        doc = FSInputFile(out_path, filename="found_full.jpg")
+                        await message.answer_document(document=doc, caption="📄 Найдена возможная полная страница", reply_markup=back_only_keyboard(lang, "other:back"))
+        except Exception:
+            pass
+
+    # Send to Gemini for solution (keep original image attachment as context)
+    try:
+        prompt = "Ты — помощник школьника. Реши задачу на фото подробно, объясни каждый шаг."
+        if lang == "kz":
+            prompt = "Сен оқушының көмекшісісің. Суреттегі есепті толық шеш, әр қадамды түсіндір."
+        # add recognized text to prompt to improve accuracy
+        if ocr_text:
+            prompt = prompt + "\n\nРаспознанный текст:\n" + ocr_text
+
         model = genai.GenerativeModel('gemini-1.5-flash-latest')
         response = model.generate_content([
             prompt,
             {"mime_type": "image/jpeg", "data": image_data}
         ])
         await message.answer(
-            f"❓ *Решение:*\n\n{response.text}",
+            f"❓ *Решение:*
+
+{response.text}",
             parse_mode="Markdown",
             reply_markup=back_only_keyboard(lang, "other:back")
         )
@@ -375,7 +424,9 @@ async def process_solve_text(message: Message, state: FSMContext):
         model = genai.GenerativeModel('gemini-1.5-flash-latest')
         response = model.generate_content(prompt)
         await message.answer(
-            f"❓ *Решение:*\n\n{response.text}",
+            f"❓ *Решение:*
+
+{response.text}",
             parse_mode="Markdown",
             reply_markup=back_only_keyboard(lang, "other:back")
         )
@@ -403,10 +454,44 @@ async def process_bzb_photo(message: Message, state: FSMContext):
     image_bytes = await message.bot.download_file(file_obj.file_path)
     image_data = image_bytes.read()
     
+    # OCR
+    try:
+        ocr_text = extract_text_from_image(image_data)
+    except Exception:
+        ocr_text = ""
+
+    search_query = ocr_text or "БЖБ задание"
+    google_url = searcher.build_google_search_url(search_query)
+
+    reply_lines = []
+    if ocr_text:
+        reply_lines.append(f"📷 Распознанный текст:\n{ocr_text}")
+    reply_lines.append(f"🔍 Попробуй поиск: {google_url}")
+    await message.answer("\n\n".join(reply_lines), reply_markup=back_only_keyboard(lang, "other:back"))
+
+    # If Bing key is available, try image search
+    if BING_SEARCH_KEY:
+        try:
+            results = searcher.search_bing_images_text(search_query, BING_SEARCH_KEY, count=3)
+            if results:
+                first = results[0]
+                url = first.get("contentUrl") or first.get("thumbnailUrl") or first.get("hostPageUrl")
+                if url:
+                    out_path = "/tmp/found_bzb.jpg"
+                    ok = searcher.download_url_to_file(url, out_path)
+                    if ok:
+                        doc = FSInputFile(out_path, filename="found_bzb.jpg")
+                        await message.answer_document(document=doc, caption="📄 Найдена возможная полная страница", reply_markup=back_only_keyboard(lang, "other:back"))
+        except Exception:
+            pass
+
+    # Send to Gemini for answer
     prompt = "Найди правильный ответ на это задание по БЖБ (безопасность жизнедеятельности)."
     if lang == "kz":
         prompt = "Өмір қауіпсіздігі (БЖБ) тапсырмасына дұрыс жауап бер."
-    
+    if ocr_text:
+        prompt = prompt + "\n\nРаспознанный текст:\n" + ocr_text
+
     try:
         model = genai.GenerativeModel('gemini-1.5-flash-latest')
         response = model.generate_content([
@@ -414,7 +499,9 @@ async def process_bzb_photo(message: Message, state: FSMContext):
             {"mime_type": "image/jpeg", "data": image_data}
         ])
         await message.answer(
-            f"🛡️ *БЖБ — ответ:*\n\n{response.text}",
+            f"🛡️ *БЖБ — ответ:*
+
+{response.text}",
             parse_mode="Markdown",
             reply_markup=back_only_keyboard(lang, "other:back")
         )
@@ -446,7 +533,9 @@ async def process_bzb_text(message: Message, state: FSMContext):
         model = genai.GenerativeModel('gemini-1.5-flash-latest')
         response = model.generate_content(prompt)
         await message.answer(
-            f"🛡️ *БЖБ — ответ:*\n\n{response.text}",
+            f"🛡️ *БЖБ — ответ:*
+
+{response.text}",
             parse_mode="Markdown",
             reply_markup=back_only_keyboard(lang, "other:back")
         )
