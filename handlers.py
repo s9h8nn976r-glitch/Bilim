@@ -2,13 +2,14 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, FSInputFile
 from aiogram.fsm.context import FSMContext
 from aiogram.filters import Command
+
 from urllib.parse import quote
-
-from google import genai
-from google.genai import types
-
-from openai import AsyncOpenAI
 import os
+import re
+import asyncio
+
+import google.generativeai as genai
+from openai import AsyncOpenAI
 
 from data import MESSAGES, SUBJECTS, TEXTBOOKS
 from keyboards import *
@@ -17,37 +18,42 @@ from config import (
     BOT_TOKEN,
     GEMINI_API_KEY,
     OPENROUTER_API_KEY,
-    BING_SEARCH_KEY,
+    BING_SEARCH_KEY
 )
+
 import searcher
 
 
 # ============================================================
-# GEMINI
+# НАСТРОЙКА GEMINI
 # ============================================================
 
-gemini_client = None
-
 if GEMINI_API_KEY and GEMINI_API_KEY != "placeholder":
-    gemini_client = genai.Client(
-        api_key=GEMINI_API_KEY
-    )
+    genai.configure(api_key=GEMINI_API_KEY)
 
 
 # ============================================================
 # OPENROUTER
 # ============================================================
 
-openrouter_client = AsyncOpenAI(
-    base_url="https://openrouter.ai/api/v1",
-    api_key=(
-        OPENROUTER_API_KEY
-        if OPENROUTER_API_KEY
-        and OPENROUTER_API_KEY != "placeholder"
-        else "sk-fake"
-    ),
-)
+if (
+    OPENROUTER_API_KEY
+    and OPENROUTER_API_KEY != "placeholder"
+):
 
+    openrouter_client = AsyncOpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=OPENROUTER_API_KEY
+    )
+
+else:
+
+    openrouter_client = None
+
+
+# ============================================================
+# ROUTER
+# ============================================================
 
 router = Router()
 
@@ -57,7 +63,11 @@ router = Router()
 # ============================================================
 
 @router.message(Command("start"))
-async def cmd_start(message: Message, state: FSMContext):
+async def cmd_start(
+    message: Message,
+    state: FSMContext
+):
+
     await state.clear()
 
     await message.answer(
@@ -67,17 +77,23 @@ async def cmd_start(message: Message, state: FSMContext):
 
 
 # ============================================================
-# LANGUAGE
+# ЯЗЫК
 # ============================================================
 
-@router.callback_query(F.data.startswith("lang:"))
+@router.callback_query(
+    F.data.startswith("lang:")
+)
 async def set_lang(
     call: CallbackQuery,
     state: FSMContext
 ):
+
     await call.answer()
 
     lang = call.data.split(":")[1]
+
+    if lang not in ("ru", "kz"):
+        lang = "ru"
 
     await state.update_data(
         lang=lang
@@ -89,11 +105,18 @@ async def set_lang(
     )
 
 
-@router.callback_query(F.data == "menu:lang")
+# ============================================================
+# СМЕНА ЯЗЫКА
+# ============================================================
+
+@router.callback_query(
+    F.data == "menu:lang"
+)
 async def change_lang(
     call: CallbackQuery,
     state: FSMContext
 ):
+
     await call.answer()
 
     await state.clear()
@@ -105,20 +128,28 @@ async def change_lang(
 
 
 # ============================================================
-# CLASS
+# ВЫБОР КЛАССА
 # ============================================================
 
-@router.callback_query(F.data.startswith("class:"))
+@router.callback_query(
+    F.data.startswith("class:")
+)
 async def set_class(
     call: CallbackQuery,
     state: FSMContext
 ):
+
     await call.answer()
 
     class_num = call.data.split(":")[1]
 
     data = await state.get_data()
-    lang = data.get("lang", "ru")
+
+    lang = data.get(
+        "lang",
+        "ru"
+    )
+
 
     if class_num == "other":
 
@@ -133,17 +164,18 @@ async def set_class(
 
         return
 
+
     await state.update_data(
         class_num=class_num
     )
 
-    subjects = SUBJECTS.get(
-        class_num,
-        {}
-    ).get(
-        lang,
-        []
+
+    subjects = (
+        SUBJECTS
+        .get(class_num, {})
+        .get(lang, [])
     )
+
 
     if not subjects:
 
@@ -154,9 +186,11 @@ async def set_class(
 
         return
 
+
     await state.set_state(
         MenuState.subject
     )
+
 
     await call.message.edit_text(
         MESSAGES[lang]["subject_choice"].format(
@@ -170,18 +204,25 @@ async def set_class(
 
 
 # ============================================================
-# OTHER MENU
+# OTHER BACK
 # ============================================================
 
-@router.callback_query(F.data == "other:back")
+@router.callback_query(
+    F.data == "other:back"
+)
 async def other_back(
     call: CallbackQuery,
     state: FSMContext
 ):
+
     await call.answer()
 
     data = await state.get_data()
-    lang = data.get("lang", "ru")
+
+    lang = data.get(
+        "lang",
+        "ru"
+    )
 
     await state.set_state(
         MenuState.class_choice
@@ -193,17 +234,29 @@ async def other_back(
     )
 
 
-@router.callback_query(F.data.startswith("other:"))
+# ============================================================
+# OTHER ACTIONS
+# ============================================================
+
+@router.callback_query(
+    F.data.startswith("other:")
+)
 async def other_actions(
     call: CallbackQuery,
     state: FSMContext
 ):
+
     await call.answer()
 
     action = call.data.split(":")[1]
 
     data = await state.get_data()
-    lang = data.get("lang", "ru")
+
+    lang = data.get(
+        "lang",
+        "ru"
+    )
+
 
     if action == "presentation":
 
@@ -219,6 +272,7 @@ async def other_actions(
             )
         )
 
+
     elif action == "solve":
 
         await state.set_state(
@@ -232,6 +286,7 @@ async def other_actions(
                 "other:back"
             )
         )
+
 
     elif action == "bzb":
 
@@ -249,18 +304,25 @@ async def other_actions(
 
 
 # ============================================================
-# SUBJECT
+# SUBJECT BACK
 # ============================================================
 
-@router.callback_query(F.data == "subject:back")
+@router.callback_query(
+    F.data == "subject:back"
+)
 async def subject_back(
     call: CallbackQuery,
     state: FSMContext
 ):
+
     await call.answer()
 
     data = await state.get_data()
-    lang = data.get("lang", "ru")
+
+    lang = data.get(
+        "lang",
+        "ru"
+    )
 
     await state.set_state(
         MenuState.class_choice
@@ -272,11 +334,18 @@ async def subject_back(
     )
 
 
-@router.callback_query(F.data.startswith("subject:"))
+# ============================================================
+# SUBJECT
+# ============================================================
+
+@router.callback_query(
+    F.data.startswith("subject:")
+)
 async def set_subject(
     call: CallbackQuery,
     state: FSMContext
 ):
+
     await call.answer()
 
     subject = call.data.split(
@@ -284,22 +353,30 @@ async def set_subject(
         1
     )[1]
 
+
     data = await state.get_data()
 
-    lang = data.get("lang", "ru")
-    class_num = data.get("class_num")
+    lang = data.get(
+        "lang",
+        "ru"
+    )
+
+    class_num = data.get(
+        "class_num"
+    )
+
 
     await state.update_data(
         subject=subject
     )
 
-    textbooks = TEXTBOOKS.get(
-        class_num,
-        {}
-    ).get(
-        subject,
-        []
+
+    textbooks = (
+        TEXTBOOKS
+        .get(class_num, {})
+        .get(subject, [])
     )
+
 
     if not textbooks:
 
@@ -313,9 +390,11 @@ async def set_subject(
 
         return
 
+
     await state.set_state(
         MenuState.textbook
     )
+
 
     await call.message.edit_text(
         MESSAGES[lang]["textbook_choice"].format(
@@ -330,24 +409,35 @@ async def set_subject(
 
 
 # ============================================================
-# TEXTBOOK
+# TEXTBOOK BACK
 # ============================================================
 
-@router.callback_query(F.data == "textbook:back")
+@router.callback_query(
+    F.data == "textbook:back"
+)
 async def textbook_back(
     call: CallbackQuery,
     state: FSMContext
 ):
+
     await call.answer()
 
     data = await state.get_data()
 
-    lang = data.get("lang", "ru")
-    class_num = data.get("class_num")
+    lang = data.get(
+        "lang",
+        "ru"
+    )
+
+    class_num = data.get(
+        "class_num"
+    )
+
 
     await state.set_state(
         MenuState.subject
     )
+
 
     await call.message.edit_text(
         MESSAGES[lang]["subject_choice"].format(
@@ -360,11 +450,18 @@ async def textbook_back(
     )
 
 
-@router.callback_query(F.data.startswith("textbook:"))
+# ============================================================
+# TEXTBOOK
+# ============================================================
+
+@router.callback_query(
+    F.data.startswith("textbook:")
+)
 async def set_textbook(
     call: CallbackQuery,
     state: FSMContext
 ):
+
     await call.answer()
 
     textbook = call.data.split(
@@ -372,19 +469,32 @@ async def set_textbook(
         1
     )[1]
 
+
     data = await state.get_data()
 
-    lang = data.get("lang", "ru")
-    class_num = data.get("class_num")
-    subject = data.get("subject")
+    lang = data.get(
+        "lang",
+        "ru"
+    )
+
+    class_num = data.get(
+        "class_num"
+    )
+
+    subject = data.get(
+        "subject"
+    )
+
 
     await state.update_data(
         textbook=textbook
     )
 
+
     await state.set_state(
         MenuState.menu
     )
+
 
     await call.message.edit_text(
         MESSAGES[lang]["menu"].format(
@@ -397,25 +507,39 @@ async def set_textbook(
 
 
 # ============================================================
-# MENU
+# ACTION BACK
 # ============================================================
 
-@router.callback_query(F.data == "action:back")
+@router.callback_query(
+    F.data == "action:back"
+)
 async def menu_back(
     call: CallbackQuery,
     state: FSMContext
 ):
+
     await call.answer()
 
     data = await state.get_data()
 
-    lang = data.get("lang", "ru")
-    class_num = data.get("class_num")
-    subject = data.get("subject")
+    lang = data.get(
+        "lang",
+        "ru"
+    )
+
+    class_num = data.get(
+        "class_num"
+    )
+
+    subject = data.get(
+        "subject"
+    )
+
 
     await state.set_state(
         MenuState.textbook
     )
+
 
     await call.message.edit_text(
         MESSAGES[lang]["textbook_choice"].format(
@@ -429,17 +553,29 @@ async def menu_back(
     )
 
 
-@router.callback_query(F.data.startswith("action:"))
+# ============================================================
+# ACTIONS
+# ============================================================
+
+@router.callback_query(
+    F.data.startswith("action:")
+)
 async def menu_actions(
     call: CallbackQuery,
     state: FSMContext
 ):
+
     await call.answer()
 
     action = call.data.split(":")[1]
 
     data = await state.get_data()
-    lang = data.get("lang", "ru")
+
+    lang = data.get(
+        "lang",
+        "ru"
+    )
+
 
     if action == "gdz":
 
@@ -454,6 +590,7 @@ async def menu_actions(
                 "action:back"
             )
         )
+
 
     elif action == "konspekt":
 
@@ -471,33 +608,49 @@ async def menu_actions(
 
 
 # ============================================================
-# GDZ
+# ГДЗ
 # ============================================================
 
-@router.message(MenuState.gdz)
+@router.message(
+    MenuState.gdz
+)
 async def process_gdz(
     message: Message,
     state: FSMContext
 ):
+
+    if not message.text:
+        return
+
+
     data = await state.get_data()
 
-    lang = data.get("lang", "ru")
-    class_num = data.get("class_num")
-    subject = data.get("subject")
-    textbook = data.get("textbook")
+    lang = data.get(
+        "lang",
+        "ru"
+    )
 
-    query = message.text
+    class_num = data.get(
+        "class_num"
+    )
 
-    if not query:
-        await message.answer(
-            "❌ Напиши номер или условие задания."
-        )
-        return
+    subject = data.get(
+        "subject"
+    )
+
+    textbook = data.get(
+        "textbook",
+        ""
+    )
+
+    query = message.text.strip()
+
 
     clean_textbook = textbook.replace(
         "📗 ",
         ""
     )
+
 
     search_query = (
         f"{subject} "
@@ -506,10 +659,12 @@ async def process_gdz(
         f"{query} гдз"
     )
 
+
     url = (
         "https://www.google.com/search?q="
         + quote(search_query)
     )
+
 
     await message.answer(
         MESSAGES[lang]["gdz_result"].format(
@@ -528,33 +683,45 @@ async def process_gdz(
 
 
 # ============================================================
-# KONSPEKT
+# КОНСПЕКТ
 # ============================================================
 
-@router.message(MenuState.konspekt)
+@router.message(
+    MenuState.konspekt
+)
 async def process_konspekt(
     message: Message,
     state: FSMContext
 ):
+
+    if not message.text:
+        return
+
+
     data = await state.get_data()
 
-    lang = data.get("lang", "ru")
-    class_num = data.get("class_num")
-    subject = data.get("subject")
+    lang = data.get(
+        "lang",
+        "ru"
+    )
 
-    query = message.text
+    class_num = data.get(
+        "class_num"
+    )
 
-    if not query:
-        await message.answer(
-            "❌ Напиши тему."
-        )
-        return
+    subject = data.get(
+        "subject"
+    )
+
+    query = message.text.strip()
+
 
     clean_subject = (
         subject.split(" ", 1)[1]
-        if " " in subject
+        if subject and " " in subject
         else subject
     )
+
 
     search_query = (
         f"{clean_subject} "
@@ -562,10 +729,12 @@ async def process_konspekt(
         f"{query} конспект"
     )
 
+
     url = (
         "https://www.google.com/search?q="
         + quote(search_query)
     )
+
 
     await message.answer(
         MESSAGES[lang]["konspekt_result"].format(
@@ -583,54 +752,118 @@ async def process_konspekt(
 
 
 # ============================================================
-# PRESENTATION
+# ПРЕЗЕНТАЦИЯ
 # ============================================================
 
-@router.message(MenuState.presentation)
+@router.message(
+    MenuState.presentation
+)
 async def process_presentation(
     message: Message,
     state: FSMContext
 ):
+
+    if not message.text:
+        return
+
+
     data = await state.get_data()
 
-    lang = data.get("lang", "ru")
-    topic = message.text
+    lang = data.get(
+        "lang",
+        "ru"
+    )
+
+    topic = message.text.strip()
+
+
+    if not openrouter_client:
+
+        await message.answer(
+            "❌ OPENROUTER_API_KEY не настроен.",
+            reply_markup=back_only_keyboard(
+                lang,
+                "other:back"
+            )
+        )
+
+        return
+
 
     if not topic:
+
         await message.answer(
             "❌ Напиши тему презентации."
         )
+
         return
 
-    prompt = (
-        f"Сделай подробный план презентации "
-        f"(8-10 слайдов) на тему: {topic}. "
-        f"Каждый слайд: заголовок через ###, "
-        f"5-7 пунктов. "
-        f"Каждый пункт — 1-2 полных предложения "
-        f"с развёрнутым объяснением. "
-        f"Используй markdown: "
-        f"заголовки через ###, пункты через -. "
-        f"Без вступления и заключения."
-    )
+
+    # ========================================================
+    # PROMPT
+    # ========================================================
 
     if lang == "kz":
-        prompt = (
-            f"Келесі тақырыпқа толық презентация "
-            f"жоспарын (8-10 слайд) жаса: {topic}. "
-            f"Әр слайд: ### тақырып, 5-7 пункт. "
-            f"Әр пункт — 1-2 толық сөйлем. "
-            f"Markdown қолдан: ### тақырыптар, - пункттер. "
-            f"Тек презентация құрылымы."
-        )
+
+        prompt = f"""
+Келесі тақырып бойынша мектепке арналған
+сапалы презентация жаса:
+
+{topic}
+
+8-10 слайд болсын.
+
+Әр слайд мына форматта:
+
+### Слайд тақырыбы
+- Бірінші толық түсіндірме сөйлем.
+- Екінші толық түсіндірме сөйлем.
+- Үшінші толық түсіндірме сөйлем.
+- Төртінші толық түсіндірме сөйлем.
+- Бесінші толық түсіндірме сөйлем.
+
+Әр пункт 1-2 толық сөйлемнен тұрсын.
+
+Тек презентация құрылымын бер.
+Кіріспе немесе артық түсініктеме қоспа.
+"""
+
+    else:
+
+        prompt = f"""
+Сделай качественную школьную презентацию
+на тему:
+
+{topic}
+
+Нужно 8-10 слайдов.
+
+Каждый слайд строго в формате:
+
+### Заголовок слайда
+- Полное объяснение первого пункта в 1-2 предложениях.
+- Полное объяснение второго пункта в 1-2 предложениях.
+- Полное объяснение третьего пункта в 1-2 предложениях.
+- Полное объяснение четвертого пункта в 1-2 предложениях.
+- Полное объяснение пятого пункта в 1-2 предложениях.
+
+Пункты должны быть информативными,
+а не состоять из 2-3 слов.
+
+Только структура презентации.
+Без лишнего вступления и заключения.
+"""
+
 
     await message.answer(
-        "⏳ Генерирую презентацию..."
+        "⏳ Создаю презентацию с изображениями..."
     )
+
 
     try:
 
         response = await openrouter_client.chat.completions.create(
+
             model="openai/gpt-4o-mini",
 
             messages=[
@@ -641,30 +874,71 @@ async def process_presentation(
             ],
 
             extra_headers={
-                "HTTP-Referer": "https://t.me/bilim_bot",
-                "X-Title": "BilimBot"
+                "HTTP-Referer":
+                    "https://t.me/bilim_bot",
+
+                "X-Title":
+                    "BilimBot"
             }
         )
 
-        content = response.choices[0].message.content
+
+        content = (
+            response
+            .choices[0]
+            .message
+            .content
+        )
+
 
         if not content:
-            raise RuntimeError(
-                "OpenRouter не вернул текст."
+
+            raise Exception(
+                "ИИ не вернул текст презентации."
             )
 
-        from presentation_generator import create_presentation
 
-        file_path = create_presentation(
+        # ====================================================
+        # СОЗДАЁМ PPTX
+        # ====================================================
+
+        from presentation_generator import (
+            create_presentation
+        )
+
+
+        file_path = await asyncio.to_thread(
+            create_presentation,
             topic,
             content,
             lang
         )
 
+
+        if not os.path.exists(
+            file_path
+        ):
+
+            raise Exception(
+                "Файл презентации не создан."
+            )
+
+
+        filename = (
+            re.sub(
+                r'[\\/*?:"<>|]',
+                "",
+                topic
+            )[:40]
+            + ".pptx"
+        )
+
+
         document = FSInputFile(
             file_path,
-            filename=f"{topic[:40]}.pptx"
+            filename=filename
         )
+
 
         await message.answer_document(
             document=document,
@@ -678,17 +952,66 @@ async def process_presentation(
             )
         )
 
+
+        # ====================================================
+        # УДАЛЯЕМ ВРЕМЕННЫЕ ФАЙЛЫ
+        # ====================================================
+
         try:
-            os.remove(file_path)
+
+            if os.path.exists(
+                file_path
+            ):
+
+                os.remove(
+                    file_path
+                )
+
         except Exception:
             pass
 
-    except Exception as e:
+
+        try:
+
+            for filename in os.listdir(
+                "/tmp"
+            ):
+
+                if (
+                    filename.startswith(
+                        "bilim_slide_"
+                    )
+                    or filename.startswith(
+                        "slide_"
+                    )
+                    or filename == "title_bg.jpg"
+                ):
+
+                    path = os.path.join(
+                        "/tmp",
+                        filename
+                    )
+
+                    try:
+                        os.remove(path)
+                    except Exception:
+                        pass
+
+        except Exception:
+            pass
+
+
+    except Exception as error:
+
+        print(
+            "Presentation error:",
+            repr(error)
+        )
+
 
         await message.answer(
             "❌ Ошибка при создании презентации:\n\n"
-            + str(e),
-
+            + str(error)[:1500],
             reply_markup=back_only_keyboard(
                 lang,
                 "other:back"
@@ -697,7 +1020,71 @@ async def process_presentation(
 
 
 # ============================================================
-# GEMINI — PHOTO SOLVER
+# GEMINI MODEL
+# ============================================================
+
+def get_gemini_model():
+
+    if (
+        not GEMINI_API_KEY
+        or GEMINI_API_KEY == "placeholder"
+    ):
+        return None
+
+
+    # Используем актуальную модель,
+    # доступную через google-generativeai.
+    #
+    # Если Google изменит название модели,
+    # можно поменять только эту строку.
+
+    return genai.GenerativeModel(
+        "gemini-2.5-flash"
+    )
+
+
+# ============================================================
+# ПОЛУЧЕНИЕ ФОТО ИЗ TELEGRAM
+# ============================================================
+
+async def download_telegram_photo(
+    message: Message
+):
+
+    if not message.photo:
+        return None
+
+
+    photo = message.photo[-1]
+
+
+    bot = message.bot
+
+
+    file = await bot.get_file(
+        photo.file_id
+    )
+
+
+    path = (
+        f"/tmp/"
+        f"bilim_input_"
+        f"{message.from_user.id}_"
+        f"{message.message_id}.jpg"
+    )
+
+
+    await bot.download_file(
+        file.file_path,
+        destination=path
+    )
+
+
+    return path
+
+
+# ============================================================
+# РЕШЕНИЕ ЗАДАЧИ ПО ФОТО
 # ============================================================
 
 @router.message(
@@ -708,6 +1095,7 @@ async def process_solve_photo(
     message: Message,
     state: FSMContext
 ):
+
     data = await state.get_data()
 
     lang = data.get(
@@ -715,12 +1103,15 @@ async def process_solve_photo(
         "ru"
     )
 
-    if gemini_client is None:
+
+    if (
+        not GEMINI_API_KEY
+        or GEMINI_API_KEY == "placeholder"
+    ):
 
         await message.answer(
-            "❌ Gemini API ключ не настроен.\n\n"
-            "Добавь GEMINI_API_KEY в Railway Variables.",
-
+            "❌ GEMINI_API_KEY не настроен "
+            "в Railway Variables.",
             reply_markup=back_only_keyboard(
                 lang,
                 "other:back"
@@ -729,191 +1120,172 @@ async def process_solve_photo(
 
         return
 
+
+    await message.answer(
+        "🔎 Читаю фотографию и решаю задачу..."
+    )
+
+
+    image_path = None
+
+
     try:
 
-        await message.answer(
-            "⏳ Анализирую фотографию..."
+        image_path = await download_telegram_photo(
+            message
         )
 
-        photo = message.photo[-1]
 
-        file_obj = await message.bot.get_file(
-            photo.file_id
+        if not image_path:
+
+            raise Exception(
+                "Не удалось скачать фотографию."
+            )
+
+
+        model = get_gemini_model()
+
+
+        if model is None:
+
+            raise Exception(
+                "Gemini API ключ не настроен."
+            )
+
+
+        # ====================================================
+        # GEMINI ЧИТАЕТ И РЕШАЕТ ЗАДАЧУ
+        # ====================================================
+
+        upload_file = await asyncio.to_thread(
+            genai.upload_file,
+            path=image_path
         )
 
-        image_file = await message.bot.download_file(
-            file_obj.file_path
-        )
-
-        image_data = image_file.read()
 
         if lang == "kz":
 
-            prompt = (
-                "Суреттегі мектеп тапсырмасын шеш. "
-                "Мәтінді мұқият оқы. "
-                "Шешу жолын қадам-қадамымен көрсет. "
-                "Формулалар мен есептеулерді түсіндір. "
-                "Соңында нақты жауапты көрсет. "
-                "Қазақ тілінде жауап бер."
-            )
+            prompt = """
+Суреттегі тапсырманы мұқият оқы.
+
+Тапсырманың нақты шартын анықта.
+Содан кейін шешу жолын кезең-кезеңімен көрсет.
+
+Формулаларды және есептеулерді түсіндір.
+
+Соңында нақты жауап бер.
+
+Егер суретте бірнеше тапсырма болса,
+олардың барлығын ретімен шеш.
+
+Жауап қазақ тілінде болсын.
+"""
 
         else:
 
-            prompt = (
-                "На фотографии находится школьная задача. "
-                "Внимательно прочитай её. "
-                "Реши задачу полностью. "
-                "Покажи решение пошагово. "
-                "Объясни формулы и вычисления. "
-                "В конце обязательно напиши итоговый ответ."
-            )
+            prompt = """
+Внимательно прочитай задачу на фотографии.
 
-        response = gemini_client.models.generate_content(
-            model="gemini-3.6-flash",
+Сначала определи точное условие задачи.
+Затем реши её пошагово.
 
-            contents=[
-                prompt,
+Покажи необходимые формулы,
+вычисления и объяснения.
 
-                types.Part.from_bytes(
-                    data=image_data,
-                    mime_type="image/jpeg"
-                )
+В конце обязательно укажи
+чёткий ответ.
+
+Если на фотографии несколько заданий,
+реши их все по порядку.
+
+Ответ на русском языке.
+"""
+
+
+        result = await asyncio.to_thread(
+            model.generate_content,
+            [
+                upload_file,
+                prompt
             ]
         )
 
-        answer = response.text
+
+        answer = getattr(
+            result,
+            "text",
+            None
+        )
+
 
         if not answer:
-            answer = (
-                "❌ Не удалось получить решение."
+
+            raise Exception(
+                "Gemini не вернул ответ."
             )
 
+
+        # Telegram ограничивает размер одного сообщения
+        max_length = 4000
+
+
+        for i in range(
+            0,
+            len(answer),
+            max_length
+        ):
+
+            await message.answer(
+                answer[i:i + max_length]
+            )
+
+
         await message.answer(
-            "📚 *Решение:*\n\n" + answer,
-
-            parse_mode="Markdown",
-
+            "✅ Готово.",
             reply_markup=back_only_keyboard(
                 lang,
                 "other:back"
             )
         )
 
-    except Exception as e:
+
+    except Exception as error:
+
+        print(
+            "Solve photo error:",
+            repr(error)
+        )
+
 
         await message.answer(
             "❌ Ошибка при обработке фотографии:\n\n"
-            + str(e),
-
+            + str(error)[:1500],
             reply_markup=back_only_keyboard(
                 lang,
                 "other:back"
             )
         )
+
+
+    finally:
+
+        if (
+            image_path
+            and os.path.exists(
+                image_path
+            )
+        ):
+
+            try:
+                os.remove(
+                    image_path
+                )
+            except Exception:
+                pass
 
 
 # ============================================================
-# GEMINI — TEXT SOLVER
-# ============================================================
-
-@router.message(
-    MenuState.solve,
-    F.text
-)
-async def process_solve_text(
-    message: Message,
-    state: FSMContext
-):
-    data = await state.get_data()
-
-    lang = data.get(
-        "lang",
-        "ru"
-    )
-
-    if gemini_client is None:
-
-        await message.answer(
-            "❌ Gemini API ключ не настроен.\n\n"
-            "Добавь GEMINI_API_KEY в Railway Variables.",
-
-            reply_markup=back_only_keyboard(
-                lang,
-                "other:back"
-            )
-        )
-
-        return
-
-    query = message.text
-
-    if not query:
-        return
-
-    if lang == "kz":
-
-        prompt = (
-            "Мектеп тапсырмасын толық шеш.\n\n"
-            f"Тапсырма:\n{query}\n\n"
-            "Шешу жолын қадам-қадамымен түсіндір. "
-            "Формулаларды көрсет. "
-            "Соңында нақты жауапты жаз. "
-            "Қазақ тілінде жауап бер."
-        )
-
-    else:
-
-        prompt = (
-            "Реши школьную задачу полностью.\n\n"
-            f"Задача:\n{query}\n\n"
-            "Покажи решение пошагово. "
-            "Объясни формулы и вычисления. "
-            "В конце обязательно укажи итоговый ответ."
-        )
-
-    try:
-
-        await message.answer(
-            "⏳ Решаю задачу..."
-        )
-
-        response = gemini_client.models.generate_content(
-            model="gemini-3.6-flash",
-            contents=prompt
-        )
-
-        answer = response.text
-
-        if not answer:
-            answer = "❌ Gemini не вернул решение."
-
-        await message.answer(
-            "📚 *Решение:*\n\n" + answer,
-
-            parse_mode="Markdown",
-
-            reply_markup=back_only_keyboard(
-                lang,
-                "other:back"
-            )
-        )
-
-    except Exception as e:
-
-        await message.answer(
-            "❌ Ошибка Gemini:\n\n"
-            + str(e),
-
-            reply_markup=back_only_keyboard(
-                lang,
-                "other:back"
-            )
-        )
-
-
-# ============================================================
-# BZB — PHOTO
+# БЖБ ПО ФОТО
 # ============================================================
 
 @router.message(
@@ -924,6 +1296,7 @@ async def process_bzb_photo(
     message: Message,
     state: FSMContext
 ):
+
     data = await state.get_data()
 
     lang = data.get(
@@ -931,12 +1304,25 @@ async def process_bzb_photo(
         "ru"
     )
 
-    if gemini_client is None:
+    class_num = data.get(
+        "class_num",
+        ""
+    )
+
+    subject = data.get(
+        "subject",
+        ""
+    )
+
+
+    if (
+        not GEMINI_API_KEY
+        or GEMINI_API_KEY == "placeholder"
+    ):
 
         await message.answer(
-            "❌ Gemini API ключ не настроен.\n\n"
-            "Добавь GEMINI_API_KEY в Railway Variables.",
-
+            "❌ GEMINI_API_KEY не настроен "
+            "в Railway Variables.",
             reply_markup=back_only_keyboard(
                 lang,
                 "other:back"
@@ -945,84 +1331,280 @@ async def process_bzb_photo(
 
         return
 
+
+    await message.answer(
+        "📚 Анализирую БЖБ..."
+    )
+
+
+    image_path = None
+
+
     try:
 
-        await message.answer(
-            "⏳ Анализирую БЖБ..."
+        image_path = await download_telegram_photo(
+            message
         )
 
-        photo = message.photo[-1]
 
-        file_obj = await message.bot.get_file(
-            photo.file_id
+        if not image_path:
+
+            raise Exception(
+                "Не удалось скачать фотографию."
+            )
+
+
+        model = get_gemini_model()
+
+
+        if model is None:
+
+            raise Exception(
+                "Gemini API ключ не настроен."
+            )
+
+
+        upload_file = await asyncio.to_thread(
+            genai.upload_file,
+            path=image_path
         )
 
-        image_file = await message.bot.download_file(
-            file_obj.file_path
-        )
-
-        image_data = image_file.read()
 
         if lang == "kz":
 
-            prompt = (
-                "Бұл суретте мектептің БЖБ тапсырмасы бар. "
-                "Барлық тапсырмаларды мұқият оқы. "
-                "Әр тапсырманы нөмірімен көрсетіп, "
-                "толық әрі дұрыс жауап бер. "
-                "Қажет болса шешу жолын көрсет. "
-                "Жауапты қазақ тілінде бер."
-            )
+            prompt = f"""
+Суретте БЖБ тапсырмасы берілген.
+
+Сынып: {class_num}
+Пән: {subject}
+
+Тапсырмалардың барлығын мұқият оқы.
+
+Әр тапсырманы ретімен түсіндір.
+Қажет болса шешу жолын көрсет.
+Жауаптарды анық және түсінікті жаз.
+
+Қазақ тілінде жауап бер.
+"""
 
         else:
 
-            prompt = (
-                "На фотографии находится БЖБ "
-                "(школьная проверочная работа). "
-                "Внимательно прочитай ВСЕ задания. "
-                "Ответь на каждое задание по порядку. "
-                "Пиши номер задания и полный ответ. "
-                "Для задач покажи решение. "
-                "Не пропускай задания."
-            )
+            prompt = f"""
+На фотографии находится БЖБ.
 
-        response = gemini_client.models.generate_content(
-            model="gemini-3.6-flash",
+Класс: {class_num}
+Предмет: {subject}
 
-            contents=[
-                prompt,
+Внимательно прочитай все задания.
 
-                types.Part.from_bytes(
-                    data=image_data,
-                    mime_type="image/jpeg"
-                )
+Разбери задания по порядку.
+Для каждого задания покажи решение
+или объяснение, если оно требуется.
+
+Ответы должны быть понятными
+и соответствовать школьному уровню.
+
+Пиши на русском языке.
+"""
+
+
+        result = await asyncio.to_thread(
+            model.generate_content,
+            [
+                upload_file,
+                prompt
             ]
         )
 
-        answer = response.text
+
+        answer = getattr(
+            result,
+            "text",
+            None
+        )
+
 
         if not answer:
-            answer = (
-                "❌ Не удалось распознать БЖБ."
+
+            raise Exception(
+                "Gemini не вернул ответ."
             )
 
+
+        max_length = 4000
+
+
+        for i in range(
+            0,
+            len(answer),
+            max_length
+        ):
+
+            await message.answer(
+                answer[i:i + max_length]
+            )
+
+
         await message.answer(
-            "📝 *Ответы на БЖБ:*\n\n" + answer,
-
-            parse_mode="Markdown",
-
+            "✅ БЖБ обработано.",
             reply_markup=back_only_keyboard(
                 lang,
                 "other:back"
             )
         )
 
-    except Exception as e:
+
+    except Exception as error:
+
+        print(
+            "BZB photo error:",
+            repr(error)
+        )
+
 
         await message.answer(
             "❌ Ошибка при обработке БЖБ:\n\n"
-            + str(e),
+            + str(error)[:1500],
+            reply_markup=back_only_keyboard(
+                lang,
+                "other:back"
+            )
+        )
 
+
+    finally:
+
+        if (
+            image_path
+            and os.path.exists(
+                image_path
+            )
+        ):
+
+            try:
+                os.remove(
+                    image_path
+                )
+            except Exception:
+                pass
+
+
+# ============================================================
+# ЕСЛИ В SOLVE ПРИШЛИ ТЕКСТОМ
+# ============================================================
+
+@router.message(
+    MenuState.solve,
+    F.text
+)
+async def process_solve_text(
+    message: Message,
+    state: FSMContext
+):
+
+    data = await state.get_data()
+
+    lang = data.get(
+        "lang",
+        "ru"
+    )
+
+
+    if (
+        not GEMINI_API_KEY
+        or GEMINI_API_KEY == "placeholder"
+    ):
+
+        await message.answer(
+            "❌ GEMINI_API_KEY не настроен.",
+            reply_markup=back_only_keyboard(
+                lang,
+                "other:back"
+            )
+        )
+
+        return
+
+
+    await message.answer(
+        "🧠 Решаю задачу..."
+    )
+
+
+    try:
+
+        model = get_gemini_model()
+
+
+        if lang == "kz":
+
+            prompt = f"""
+Төмендегі тапсырманы толық шеш:
+
+{message.text}
+
+Шешу жолын кезең-кезеңімен түсіндір.
+Соңында нақты жауап бер.
+"""
+
+        else:
+
+            prompt = f"""
+Реши следующую школьную задачу:
+
+{message.text}
+
+Покажи решение пошагово,
+объясни формулы и вычисления,
+а в конце дай точный ответ.
+"""
+
+
+        result = await asyncio.to_thread(
+            model.generate_content,
+            prompt
+        )
+
+
+        answer = getattr(
+            result,
+            "text",
+            None
+        )
+
+
+        if not answer:
+
+            raise Exception(
+                "Gemini не вернул ответ."
+            )
+
+
+        for i in range(
+            0,
+            len(answer),
+            4000
+        ):
+
+            await message.answer(
+                answer[i:i + 4000]
+            )
+
+
+        await message.answer(
+            "✅ Готово.",
+            reply_markup=back_only_keyboard(
+                lang,
+                "other:back"
+            )
+        )
+
+
+    except Exception as error:
+
+        await message.answer(
+            "❌ Ошибка:\n\n"
+            + str(error)[:1500],
             reply_markup=back_only_keyboard(
                 lang,
                 "other:back"
@@ -1031,7 +1613,7 @@ async def process_bzb_photo(
 
 
 # ============================================================
-# BZB — TEXT
+# БЖБ — ЕСЛИ ПРИШЁЛ ТЕКСТ
 # ============================================================
 
 @router.message(
@@ -1042,6 +1624,7 @@ async def process_bzb_text(
     message: Message,
     state: FSMContext
 ):
+
     data = await state.get_data()
 
     lang = data.get(
@@ -1049,11 +1632,24 @@ async def process_bzb_text(
         "ru"
     )
 
-    if gemini_client is None:
+    class_num = data.get(
+        "class_num",
+        ""
+    )
+
+    subject = data.get(
+        "subject",
+        ""
+    )
+
+
+    if (
+        not GEMINI_API_KEY
+        or GEMINI_API_KEY == "placeholder"
+    ):
 
         await message.answer(
-            "❌ Gemini API ключ не настроен.",
-
+            "❌ GEMINI_API_KEY не настроен.",
             reply_markup=back_only_keyboard(
                 lang,
                 "other:back"
@@ -1062,60 +1658,77 @@ async def process_bzb_text(
 
         return
 
-    query = message.text
 
-    if lang == "kz":
+    await message.answer(
+        "🧠 Решаю БЖБ..."
+    )
 
-        prompt = (
-            "Төмендегі БЖБ тапсырмаларына жауап бер. "
-            "Әр тапсырманы нөмірімен көрсет. "
-            "Қажет болса шешу жолын түсіндір. "
-            "Қазақ тілінде жауап бер.\n\n"
-            f"{query}"
-        )
-
-    else:
-
-        prompt = (
-            "Реши следующие задания БЖБ. "
-            "Ответь на каждое задание по порядку. "
-            "Показывай решение там, где оно необходимо.\n\n"
-            f"{query}"
-        )
 
     try:
 
-        await message.answer(
-            "⏳ Решаю БЖБ..."
+        model = get_gemini_model()
+
+
+        prompt = f"""
+Помоги решить школьное БЖБ.
+
+Класс: {class_num}
+Предмет: {subject}
+
+Задания:
+
+{message.text}
+
+Реши задания по порядку.
+Покажи объяснения и ответы.
+"""
+
+
+        result = await asyncio.to_thread(
+            model.generate_content,
+            prompt
         )
 
-        response = gemini_client.models.generate_content(
-            model="gemini-3.6-flash",
-            contents=prompt
+
+        answer = getattr(
+            result,
+            "text",
+            None
         )
 
-        answer = response.text
 
         if not answer:
-            answer = "❌ Gemini не вернул ответы."
+
+            raise Exception(
+                "Gemini не вернул ответ."
+            )
+
+
+        for i in range(
+            0,
+            len(answer),
+            4000
+        ):
+
+            await message.answer(
+                answer[i:i + 4000]
+            )
+
 
         await message.answer(
-            "📝 *Ответы на БЖБ:*\n\n" + answer,
-
-            parse_mode="Markdown",
-
+            "✅ Готово.",
             reply_markup=back_only_keyboard(
                 lang,
                 "other:back"
             )
         )
 
-    except Exception as e:
+
+    except Exception as error:
 
         await message.answer(
-            "❌ Ошибка Gemini:\n\n"
-            + str(e),
-
+            "❌ Ошибка:\n\n"
+            + str(error)[:1500],
             reply_markup=back_only_keyboard(
                 lang,
                 "other:back"
