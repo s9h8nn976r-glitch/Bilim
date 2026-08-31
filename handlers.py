@@ -13,24 +13,30 @@ import os
 from data import MESSAGES, SUBJECTS, TEXTBOOKS
 from keyboards import *
 from states import MenuState
-from config import BOT_TOKEN, GEMINI_API_KEY, OPENROUTER_API_KEY, BING_SEARCH_KEY
-from ocr import extract_text_from_image
+from config import (
+    BOT_TOKEN,
+    GEMINI_API_KEY,
+    OPENROUTER_API_KEY,
+    BING_SEARCH_KEY,
+)
 import searcher
 
 
-# =========================
+# ============================================================
 # GEMINI
-# =========================
+# ============================================================
 
 gemini_client = None
 
 if GEMINI_API_KEY and GEMINI_API_KEY != "placeholder":
-    gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+    gemini_client = genai.Client(
+        api_key=GEMINI_API_KEY
+    )
 
 
-# =========================
+# ============================================================
 # OPENROUTER
-# =========================
+# ============================================================
 
 openrouter_client = AsyncOpenAI(
     base_url="https://openrouter.ai/api/v1",
@@ -46,9 +52,9 @@ openrouter_client = AsyncOpenAI(
 router = Router()
 
 
-# =========================
+# ============================================================
 # START
-# =========================
+# ============================================================
 
 @router.message(Command("start"))
 async def cmd_start(message: Message, state: FSMContext):
@@ -60,17 +66,22 @@ async def cmd_start(message: Message, state: FSMContext):
     )
 
 
-# =========================
+# ============================================================
 # LANGUAGE
-# =========================
+# ============================================================
 
 @router.callback_query(F.data.startswith("lang:"))
-async def set_lang(call: CallbackQuery, state: FSMContext):
+async def set_lang(
+    call: CallbackQuery,
+    state: FSMContext
+):
     await call.answer()
 
     lang = call.data.split(":")[1]
 
-    await state.update_data(lang=lang)
+    await state.update_data(
+        lang=lang
+    )
 
     await call.message.edit_text(
         MESSAGES[lang]["class_choice"],
@@ -79,7 +90,10 @@ async def set_lang(call: CallbackQuery, state: FSMContext):
 
 
 @router.callback_query(F.data == "menu:lang")
-async def change_lang(call: CallbackQuery, state: FSMContext):
+async def change_lang(
+    call: CallbackQuery,
+    state: FSMContext
+):
     await call.answer()
 
     await state.clear()
@@ -90,21 +104,31 @@ async def change_lang(call: CallbackQuery, state: FSMContext):
     )
 
 
-# =========================
+# ============================================================
 # CLASS
-# =========================
+# ============================================================
 
 @router.callback_query(F.data.startswith("class:"))
-async def set_class(call: CallbackQuery, state: FSMContext):
+async def set_class(
+    call: CallbackQuery,
+    state: FSMContext
+):
     await call.answer()
 
     class_num = call.data.split(":")[1]
 
     data = await state.get_data()
-    lang = data.get("lang", "ru")
+
+    lang = data.get(
+        "lang",
+        "ru"
+    )
 
     if class_num == "other":
-        await state.set_state(MenuState.other)
+
+        await state.set_state(
+            MenuState.other
+        )
 
         await call.message.edit_text(
             MESSAGES[lang]["other_menu"],
@@ -113,11 +137,20 @@ async def set_class(call: CallbackQuery, state: FSMContext):
 
         return
 
-    await state.update_data(class_num=class_num)
+    await state.update_data(
+        class_num=class_num
+    )
 
-    subjects = SUBJECTS.get(class_num, {}).get(lang, [])
+    subjects = SUBJECTS.get(
+        class_num,
+        {}
+    ).get(
+        lang,
+        []
+    )
 
     if not subjects:
+
         await call.message.edit_text(
             MESSAGES[lang]["no_data"],
             reply_markup=class_keyboard(lang)
@@ -125,7 +158,9 @@ async def set_class(call: CallbackQuery, state: FSMContext):
 
         return
 
-    await state.set_state(MenuState.subject)
+    await state.set_state(
+        MenuState.subject
+    )
 
     await call.message.edit_text(
         MESSAGES[lang]["subject_choice"].format(
@@ -138,18 +173,27 @@ async def set_class(call: CallbackQuery, state: FSMContext):
     )
 
 
-# =========================
-# OTHER BACK
-# =========================
+# ============================================================
+# OTHER MENU
+# ============================================================
 
 @router.callback_query(F.data == "other:back")
-async def other_back(call: CallbackQuery, state: FSMContext):
+async def other_back(
+    call: CallbackQuery,
+    state: FSMContext
+):
     await call.answer()
 
     data = await state.get_data()
-    lang = data.get("lang", "ru")
 
-    await state.set_state(MenuState.class_choice)
+    lang = data.get(
+        "lang",
+        "ru"
+    )
+
+    await state.set_state(
+        MenuState.class_choice
+    )
 
     await call.message.edit_text(
         MESSAGES[lang]["class_choice"],
@@ -157,22 +201,27 @@ async def other_back(call: CallbackQuery, state: FSMContext):
     )
 
 
-# =========================
-# OTHER MENU
-# =========================
-
 @router.callback_query(F.data.startswith("other:"))
-async def other_actions(call: CallbackQuery, state: FSMContext):
+async def other_actions(
+    call: CallbackQuery,
+    state: FSMContext
+):
     await call.answer()
 
     action = call.data.split(":")[1]
 
     data = await state.get_data()
-    lang = data.get("lang", "ru")
+
+    lang = data.get(
+        "lang",
+        "ru"
+    )
 
     if action == "presentation":
 
-        await state.set_state(MenuState.presentation)
+        await state.set_state(
+            MenuState.presentation
+        )
 
         await call.message.edit_text(
             MESSAGES[lang]["presentation_prompt"],
@@ -184,7 +233,9 @@ async def other_actions(call: CallbackQuery, state: FSMContext):
 
     elif action == "solve":
 
-        await state.set_state(MenuState.solve)
+        await state.set_state(
+            MenuState.solve
+        )
 
         await call.message.edit_text(
             MESSAGES[lang]["solve_prompt"],
@@ -196,7 +247,9 @@ async def other_actions(call: CallbackQuery, state: FSMContext):
 
     elif action == "bzb":
 
-        await state.set_state(MenuState.bzb)
+        await state.set_state(
+            MenuState.bzb
+        )
 
         await call.message.edit_text(
             MESSAGES[lang]["bzb_prompt"],
@@ -207,18 +260,27 @@ async def other_actions(call: CallbackQuery, state: FSMContext):
         )
 
 
-# =========================
-# SUBJECT BACK
-# =========================
+# ============================================================
+# SUBJECT
+# ============================================================
 
 @router.callback_query(F.data == "subject:back")
-async def subject_back(call: CallbackQuery, state: FSMContext):
+async def subject_back(
+    call: CallbackQuery,
+    state: FSMContext
+):
     await call.answer()
 
     data = await state.get_data()
-    lang = data.get("lang", "ru")
 
-    await state.set_state(MenuState.class_choice)
+    lang = data.get(
+        "lang",
+        "ru"
+    )
+
+    await state.set_state(
+        MenuState.class_choice
+    )
 
     await call.message.edit_text(
         MESSAGES[lang]["class_choice"],
@@ -226,22 +288,32 @@ async def subject_back(call: CallbackQuery, state: FSMContext):
     )
 
 
-# =========================
-# SUBJECT
-# =========================
-
 @router.callback_query(F.data.startswith("subject:"))
-async def set_subject(call: CallbackQuery, state: FSMContext):
+async def set_subject(
+    call: CallbackQuery,
+    state: FSMContext
+):
     await call.answer()
 
-    subject = call.data.split(":", 1)[1]
+    subject = call.data.split(
+        ":",
+        1
+    )[1]
 
     data = await state.get_data()
 
-    lang = data.get("lang", "ru")
-    class_num = data.get("class_num")
+    lang = data.get(
+        "lang",
+        "ru"
+    )
 
-    await state.update_data(subject=subject)
+    class_num = data.get(
+        "class_num"
+    )
+
+    await state.update_data(
+        subject=subject
+    )
 
     textbooks = TEXTBOOKS.get(
         class_num,
@@ -263,7 +335,9 @@ async def set_subject(call: CallbackQuery, state: FSMContext):
 
         return
 
-    await state.set_state(MenuState.textbook)
+    await state.set_state(
+        MenuState.textbook
+    )
 
     await call.message.edit_text(
         MESSAGES[lang]["textbook_choice"].format(
@@ -277,20 +351,31 @@ async def set_subject(call: CallbackQuery, state: FSMContext):
     )
 
 
-# =========================
-# TEXTBOOK BACK
-# =========================
+# ============================================================
+# TEXTBOOK
+# ============================================================
 
 @router.callback_query(F.data == "textbook:back")
-async def textbook_back(call: CallbackQuery, state: FSMContext):
+async def textbook_back(
+    call: CallbackQuery,
+    state: FSMContext
+):
     await call.answer()
 
     data = await state.get_data()
 
-    lang = data.get("lang", "ru")
-    class_num = data.get("class_num")
+    lang = data.get(
+        "lang",
+        "ru"
+    )
 
-    await state.set_state(MenuState.subject)
+    class_num = data.get(
+        "class_num"
+    )
+
+    await state.set_state(
+        MenuState.subject
+    )
 
     await call.message.edit_text(
         MESSAGES[lang]["subject_choice"].format(
@@ -303,27 +388,40 @@ async def textbook_back(call: CallbackQuery, state: FSMContext):
     )
 
 
-# =========================
-# TEXTBOOK
-# =========================
-
 @router.callback_query(F.data.startswith("textbook:"))
-async def set_textbook(call: CallbackQuery, state: FSMContext):
+async def set_textbook(
+    call: CallbackQuery,
+    state: FSMContext
+):
     await call.answer()
 
-    textbook = call.data.split(":", 1)[1]
+    textbook = call.data.split(
+        ":",
+        1
+    )[1]
 
     data = await state.get_data()
 
-    lang = data.get("lang", "ru")
-    class_num = data.get("class_num")
-    subject = data.get("subject")
+    lang = data.get(
+        "lang",
+        "ru"
+    )
+
+    class_num = data.get(
+        "class_num"
+    )
+
+    subject = data.get(
+        "subject"
+    )
 
     await state.update_data(
         textbook=textbook
     )
 
-    await state.set_state(MenuState.menu)
+    await state.set_state(
+        MenuState.menu
+    )
 
     await call.message.edit_text(
         MESSAGES[lang]["menu"].format(
@@ -335,21 +433,35 @@ async def set_textbook(call: CallbackQuery, state: FSMContext):
     )
 
 
-# =========================
-# MENU BACK
-# =========================
+# ============================================================
+# MENU
+# ============================================================
 
 @router.callback_query(F.data == "action:back")
-async def menu_back(call: CallbackQuery, state: FSMContext):
+async def menu_back(
+    call: CallbackQuery,
+    state: FSMContext
+):
     await call.answer()
 
     data = await state.get_data()
 
-    lang = data.get("lang", "ru")
-    class_num = data.get("class_num")
-    subject = data.get("subject")
+    lang = data.get(
+        "lang",
+        "ru"
+    )
 
-    await state.set_state(MenuState.textbook)
+    class_num = data.get(
+        "class_num"
+    )
+
+    subject = data.get(
+        "subject"
+    )
+
+    await state.set_state(
+        MenuState.textbook
+    )
 
     await call.message.edit_text(
         MESSAGES[lang]["textbook_choice"].format(
@@ -363,22 +475,27 @@ async def menu_back(call: CallbackQuery, state: FSMContext):
     )
 
 
-# =========================
-# MENU ACTIONS
-# =========================
-
 @router.callback_query(F.data.startswith("action:"))
-async def menu_actions(call: CallbackQuery, state: FSMContext):
+async def menu_actions(
+    call: CallbackQuery,
+    state: FSMContext
+):
     await call.answer()
 
     action = call.data.split(":")[1]
 
     data = await state.get_data()
-    lang = data.get("lang", "ru")
+
+    lang = data.get(
+        "lang",
+        "ru"
+    )
 
     if action == "gdz":
 
-        await state.set_state(MenuState.gdz)
+        await state.set_state(
+            MenuState.gdz
+        )
 
         await call.message.edit_text(
             MESSAGES[lang]["gdz_prompt"],
@@ -390,7 +507,9 @@ async def menu_actions(call: CallbackQuery, state: FSMContext):
 
     elif action == "konspekt":
 
-        await state.set_state(MenuState.konspekt)
+        await state.set_state(
+            MenuState.konspekt
+        )
 
         await call.message.edit_text(
             MESSAGES[lang]["konspekt_prompt"],
@@ -401,22 +520,33 @@ async def menu_actions(call: CallbackQuery, state: FSMContext):
         )
 
 
-# =========================
+# ============================================================
 # GDZ
-# =========================
+# ============================================================
 
 @router.message(MenuState.gdz)
 async def process_gdz(
     message: Message,
     state: FSMContext
 ):
-
     data = await state.get_data()
 
-    lang = data.get("lang", "ru")
-    class_num = data.get("class_num")
-    subject = data.get("subject")
-    textbook = data.get("textbook")
+    lang = data.get(
+        "lang",
+        "ru"
+    )
+
+    class_num = data.get(
+        "class_num"
+    )
+
+    subject = data.get(
+        "subject"
+    )
+
+    textbook = data.get(
+        "textbook"
+    )
 
     query = message.text
 
@@ -453,21 +583,29 @@ async def process_gdz(
     )
 
 
-# =========================
+# ============================================================
 # KONSPEKT
-# =========================
+# ============================================================
 
 @router.message(MenuState.konspekt)
 async def process_konspekt(
     message: Message,
     state: FSMContext
 ):
-
     data = await state.get_data()
 
-    lang = data.get("lang", "ru")
-    class_num = data.get("class_num")
-    subject = data.get("subject")
+    lang = data.get(
+        "lang",
+        "ru"
+    )
+
+    class_num = data.get(
+        "class_num"
+    )
+
+    subject = data.get(
+        "subject"
+    )
 
     query = message.text
 
@@ -503,20 +641,29 @@ async def process_konspekt(
     )
 
 
-# =========================
+# ============================================================
 # PRESENTATION
-# =========================
+# ============================================================
 
 @router.message(MenuState.presentation)
 async def process_presentation(
     message: Message,
     state: FSMContext
 ):
-
     data = await state.get_data()
 
-    lang = data.get("lang", "ru")
+    lang = data.get(
+        "lang",
+        "ru"
+    )
+
     topic = message.text
+
+    if not topic:
+        await message.answer(
+            "❌ Напиши тему презентации."
+        )
+        return
 
     prompt = (
         f"Сделай подробный план презентации "
@@ -577,6 +724,11 @@ async def process_presentation(
 
         content = response.choices[0].message.content
 
+        if not content:
+            raise RuntimeError(
+                "OpenRouter не вернул текст."
+            )
+
         from presentation_generator import create_presentation
 
         file_path = create_presentation(
@@ -608,15 +760,19 @@ async def process_presentation(
 
             os.remove(file_path)
 
-            for f in os.listdir("/tmp"):
+            for filename in os.listdir("/tmp"):
 
                 if (
-                    f.startswith("slide_")
-                    or f == "title_bg.jpg"
+                    filename.startswith("slide_")
+                    or filename == "title_bg.jpg"
                 ):
+
                     try:
                         os.remove(
-                            f"/tmp/{f}"
+                            os.path.join(
+                                "/tmp",
+                                filename
+                            )
                         )
                     except Exception:
                         pass
@@ -627,7 +783,8 @@ async def process_presentation(
     except Exception as e:
 
         await message.answer(
-            "❌ Ошибка: " + str(e),
+            "❌ Ошибка при создании презентации:\n\n"
+            + str(e),
 
             reply_markup=back_only_keyboard(
                 lang,
@@ -636,9 +793,9 @@ async def process_presentation(
         )
 
 
-# =========================
+# ============================================================
 # SOLVE PHOTO
-# =========================
+# ============================================================
 
 @router.message(
     MenuState.solve,
@@ -648,7 +805,6 @@ async def process_solve_photo(
     message: Message,
     state: FSMContext
 ):
-
     data = await state.get_data()
 
     lang = data.get(
@@ -659,7 +815,7 @@ async def process_solve_photo(
     if gemini_client is None:
 
         await message.answer(
-            "❌ Gemini API ключ не настроен. "
+            "❌ Gemini API ключ не настроен.\n\n"
             "Добавь GEMINI_API_KEY в Railway Variables.",
 
             reply_markup=back_only_keyboard(
@@ -672,34 +828,55 @@ async def process_solve_photo(
 
     try:
 
+        await message.answer(
+            "⏳ Анализирую фотографию..."
+        )
+
         photo = message.photo[-1]
 
         file_obj = await message.bot.get_file(
             photo.file_id
         )
 
-        image_bytes = await message.bot.download_file(
+        image_file = await message.bot.download_file(
             file_obj.file_path
         )
 
-        image_data = image_bytes.read()
+        image_data = image_file.read()
 
         if lang == "kz":
 
             prompt = (
-                "Сен оқушының көмекшісісің. "
-                "Суреттегі есепті толық шеш. "
-                "Әр қадамды түсіндір. "
+                "Сен мектеп оқушысына көмектесетін "
+                "ассистентсің. "
+
+                "Суреттегі тапсырманы мұқият оқып, "
+                "толық шеш. "
+
+                "Шешу жолын қадам-қадамымен түсіндір. "
+
+                "Формулалар мен есептеулерді көрсет. "
+
+                "Соңында нақты жауапты жаз. "
+
                 "Жауапты қазақ тілінде бер."
             )
 
         else:
 
             prompt = (
-                "Ты — помощник школьника. "
-                "Реши задачу на фотографии подробно. "
-                "Объясни каждый шаг простым "
-                "и понятным языком."
+                "Ты помощник школьника. "
+
+                "Внимательно прочитай задачу "
+                "на фотографии и реши её полностью. "
+
+                "Покажи решение пошагово. "
+
+                "Объясни используемые формулы "
+                "и вычисления простым языком. "
+
+                "В конце обязательно укажи "
+                "итоговый ответ."
             )
 
         response = gemini_client.models.generate_content(
@@ -715,14 +892,17 @@ async def process_solve_photo(
             ]
         )
 
-        answer = (
-            response.text
-            if response.text
-            else "❌ Gemini не вернул ответ."
-        )
+        answer = response.text
+
+        if not answer:
+
+            answer = (
+                "❌ Gemini не смог распознать "
+                "задачу на фотографии."
+            )
 
         await message.answer(
-            f"❓ *Решение:*\n\n{answer}",
+            "📚 *Решение:*\n\n" + answer,
 
             parse_mode="Markdown",
 
@@ -735,7 +915,120 @@ async def process_solve_photo(
     except Exception as e:
 
         await message.answer(
-            f"❌ Ошибка Gemini: {e}",
+            "❌ Ошибка при обработке фотографии:\n\n"
+            + str(e),
+
+            reply_markup=back_only_keyboard(
+                lang,
+                "other:back"
+            )
+        )
+
+
+# ============================================================
+# SOLVE TEXT
+# ============================================================
+
+@router.message(MenuState.solve, F.text)
+async def process_solve_text(
+    message: Message,
+    state: FSMContext
+):
+    data = await state.get_data()
+
+    lang = data.get(
+        "lang",
+        "ru"
+    )
+
+    if gemini_client is None:
+
+        await message.answer(
+            "❌ Gemini API ключ не настроен.\n\n"
+            "Добавь GEMINI_API_KEY в Railway Variables.",
+
+            reply_markup=back_only_keyboard(
+                lang,
+                "other:back"
+            )
+        )
+
+        return
+
+    query = message.text
+
+    if not query:
+
+        await message.answer(
+            "❌ Напиши задачу текстом."
+        )
+
+        return
+
+    if lang == "kz":
+
+        prompt = (
+            "Сен мектеп оқушысына көмектесетін "
+            "ассистентсің. "
+
+            "Мына есепті толық шеш:\n\n"
+            f"{query}\n\n"
+
+            "Шешу жолын қадам-қадамымен түсіндір. "
+            "Формулаларды көрсет. "
+            "Соңында нақты жауапты жаз. "
+            "Жауапты қазақ тілінде бер."
+        )
+
+    else:
+
+        prompt = (
+            "Ты помощник школьника. "
+
+            "Реши следующую задачу полностью:\n\n"
+            f"{query}\n\n"
+
+            "Покажи решение пошагово. "
+            "Объясни формулы и вычисления. "
+            "В конце обязательно укажи "
+            "итоговый ответ."
+        )
+
+    try:
+
+        await message.answer(
+            "⏳ Решаю задачу..."
+        )
+
+        response = gemini_client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=prompt
+        )
+
+        answer = response.text
+
+        if not answer:
+
+            answer = (
+                "❌ Gemini не вернул решение."
+            )
+
+        await message.answer(
+            "📚 *Решение:*\n\n" + answer,
+
+            parse_mode="Markdown",
+
+            reply_markup=back_only_keyboard(
+                lang,
+                "other:back"
+            )
+        )
+
+    except Exception as e:
+
+        await message.answer(
+            "❌ Ошибка Gemini:\n\n"
+            + str(e),
 
             reply_markup=back_only_keyboard(
                 lang,
